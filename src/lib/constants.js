@@ -1,143 +1,147 @@
-// ───────────────────────────────────────────────────────────────
-// Shared constants & data
-// ───────────────────────────────────────────────────────────────
+/* ------------------------------------------------------------------ */
+/*  constants.js — palette, layout math, demo content                  */
+/* ------------------------------------------------------------------ */
 
-export const NOTE_COLORS = [
-  { id: "white", hex: "#FFFFFF" },
-  { id: "cream", hex: "#F7F2E0" },
-  { id: "warm",  hex: "#EDE5D4" },
-  { id: "sand",  hex: "#D8CFBC" },
-  { id: "mocha", hex: "#BFB09E" },
-]
+/* ---------------- tuning ------------------------------------------ */
+export const SPIRAL_SPACING = 150;      // distance between items (↑ = sparser spiral)
+export const GOLDEN_ANGLE = 137.5;      // phyllotaxis angle, degrees
+export const DEMO_COUNT = 15;           // ~20 max before perf degrades
+export const DECOR_COUNT = 30;          // scrapbook ephemera count
 
-export const STICKER_SET = [
-  { id: "disco",   e: "🪩" },
-  { id: "bear",    e: "🧸" },
-  { id: "star_s",  e: "⭐" },
-  { id: "star_b",  e: "💙" },
-  { id: "flower",  e: "🌸" },
-  { id: "flower2", e: "💠" },
-  { id: "bow",     e: "🎀" },
-  { id: "gem",     e: "💎" },
-  { id: "sparkle", e: "✨" },
-]
+/* ---------------- palette ------------------------------------------ */
+export const COLORS = {
+  canvas: "#fff3d1",
+  text: "#1A1A1A",
+  muted: "#BCB0A0",
+  joints: "#a04bca",
+  bones: "#FFFFFF",
+};
 
-export const PHOTO_FRAMES = [
-  { id: "bare",     label: "Bare",     w: 200, h: 150, aspect: "4 / 3" },
-  { id: "polaroid", label: "Polaroid", w: 160, h: 200, aspect: "3 / 4" },
-  { id: "gingham",  label: "Gingham",  w: 200, h: 150, aspect: "4 / 3" },
-]
+export const DECOR_COLORS = ["#E8CFAE", "#D4BEB0", "#BED0C8", "#D0C4B8", "#C8C0D0"];
 
-const PHOTO_SEEDS = [
-  ["room", 165, 120], ["cafe", 150, 125], ["street", 160, 110], ["window", 160, 110], ["coast", 165, 125],
-  ["table", 160, 125], ["portrait", 150, 115], ["books", 150, 115], ["city", 170, 120], ["food", 160, 125],
-  ["flowers", 160, 110], ["arch", 160, 125], ["interior", 160, 115], ["travel", 150, 110], ["texture", 160, 115],
-  ["garden", 160, 115], ["night", 165, 120], ["shore", 160, 115], ["market", 160, 115], ["desk", 170, 120],
-  ["forest", 150, 120], ["bridge", 170, 115], ["rooftop", 160, 120], ["dinner", 150, 120], ["mountain", 165, 110],
-  ["studio", 165, 110], ["alley", 165, 120], ["harbor", 165, 125], ["field", 165, 115], ["stairs", 170, 125],
-  ["mirror", 160, 110], ["lamp", 165, 110], ["train", 165, 125], ["beach", 150, 125], ["snow", 165, 125],
-  ["dusk", 150, 125], ["river", 150, 115], ["park", 160, 110], ["tower", 160, 125], ["gate", 165, 120],
-  ["lake", 165, 125], ["cliff", 150, 120], ["dawn", 165, 110], ["valley", 170, 110], ["port", 160, 120],
-  ["attic", 165, 115], ["hall", 165, 120], ["court", 150, 120],
-]
+export const STICKY_COLORS = ["#FFF6A9", "#FFD9C4", "#CDEAD9", "#D9E2FF", "#F4CFE4"];
 
-// ───────────────────────────────────────────────────────────────
-// Helpers
-// ───────────────────────────────────────────────────────────────
+export const STICKERS = ["✶", "❀", "☻", "♡", "✉", "☼", "✿", "★"];
 
-export const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v))
-export const rand = (a, b) => a + Math.random() * (b - a)
+/* ---------------- phyllotaxis -------------------------------------- */
 
-let _uid = 0
-export const uid = () => `item-${++_uid}`
-
-// Golden angle (137.5°) in radians — the spacing between successive
-// points in a phyllotaxis (sunflower) spiral.
-const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5))
-
-// ───────────────────────────────────────────────────────────────
-// Cylinder layout
-//
-// Photos wrap onto a real cylinder: each gets an angle θ around the
-// vertical axis and a height. We spread them as a gentle multi-turn
-// helix so the front-facing band always shows a varied mix and the
-// density stays even top-to-bottom.
-//
-//   theta  → rotateY around the cylinder axis (deg)
-//   hy     → vertical offset along the axis (px)
-//   tilt   → small rotateZ lean, for an organic scrapbook feel
-//
-// CanvasItem places each item with:
-//   rotateY(theta) translateZ(radius) translateY(hy) rotateZ(tilt)
-// and the Gallery rotates the whole stage to pan. (See CYL below for
-// the tunable radius / turns / height.)
-// ───────────────────────────────────────────────────────────────
-
-export const CYL = {
-  radius: 360,   // cylinder radius (px) — front photos sit this far toward the viewer
-  turns: 3,      // helix wraps this many times top-to-bottom (density around the ring)
-  height: 1000,  // total vertical span of the band (px)
-  spreadScale: 0.62, // photo scale in the flat spread
-  fillW: 0.86,   // fraction of viewport width the spread fills
-  fillH: 0.80,   // fraction of viewport height the spread fills
+// Golden-angle spiral position for index i. Density stays even as n grows;
+// the same pattern found in sunflowers and pinecones.
+export function phyllotaxis(i, spacing = SPIRAL_SPACING) {
+  const angle = i * GOLDEN_ANGLE * (Math.PI / 180);
+  const radius = spacing * Math.sqrt(i + 0.6);
+  return {
+    x: Math.cos(angle) * radius,
+    y: Math.sin(angle) * radius,
+    radius,
+  };
 }
 
-const SPREAD_COLS = 8
-
-// Each item carries a CYLINDER placement (two inward-curling columns:
-// cx / cy) and a flat SPREAD placement (normalized sx / sy in [-0.5,0.5],
-// scaled to the live viewport). The Gallery morphs positions between the
-// two and fades the rotateY curl as it spreads. Fist → cylinder, open
-// palm → spread (and pans it).
-export function makeCylinder() {
-  const n = PHOTO_SEEDS.length
-  const angleStep = (360 * CYL.turns) / n
-  const cols = SPREAD_COLS
-  const srows = Math.ceil(n / cols)
-
-  return PHOTO_SEEDS.map(([seed, w, h], i) => {
-    // cylinder — photos wrapped around a vertical axis (a gentle helix)
-    const theta = i * angleStep
-    const hy = (i / (n - 1) - 0.5) * CYL.height
-    const tilt = Math.sin(i * 1.7) * 3
-
-    // spread — jittered grid (normalized), the wide scatter from the clip
-    const scol = i % cols
-    const srow = Math.floor(i / cols)
-    const sx = (scol + 0.5) / cols - 0.5 + (rand(-1, 1) * 0.5) / cols
-    const sy = (srow + 0.5) / srows - 0.5 + (rand(-1, 1) * 0.5) / srows
-    const frot = rand(-9, 9)
-
-    return {
-      id: uid(),
-      type: "photo",
-      src: `https://picsum.photos/seed/${seed}/${w}/${h}`,
-      theta, hy, tilt, sx, sy, frot,
-      width: w,
-      height: h,
-      frame: "bare",
-    }
-  })
+// Parallax depth grows with spiral radius — edge items drift more (0.25–1.0).
+export function depthForIndex(i, total) {
+  const t = total <= 1 ? 1 : i / (total - 1);
+  return 0.25 + t * 0.75;
 }
 
-// Legacy flat phyllotaxis layout — kept for reference / the old FLAT board.
-export function makeDemo() {
-  const n = PHOTO_SEEDS.length
-  const spacing = 150
+let uid = 0;
+export const nextId = () => `item-${++uid}-${Date.now().toString(36)}`;
 
-  return PHOTO_SEEDS.map(([seed, w, h], i) => {
-    const angle = i * GOLDEN_ANGLE
-    const radius = spacing * Math.sqrt(i)
-    return {
-      id: uid(),
-      type: "photo",
-      src: `https://picsum.photos/seed/${seed}/${w}/${h}`,
-      x: Math.cos(angle) * radius,
-      y: Math.sin(angle) * radius,
-      rotation: Math.sin(angle) * 8,
-      width: w,
-      height: h,
-      frame: "bare",
-    }
-  })
+/* ---------------- demo content ------------------------------------- */
+
+const FRAMES = ["bare", "polaroid", "gingham"];
+
+export function makeDemo(count = DEMO_COUNT) {
+  const items = [];
+  for (let i = 0; i < count; i++) {
+    const pos = phyllotaxis(i);
+    items.push({
+      id: nextId(),
+      kind: "photo",
+      src: `https://picsum.photos/seed/liminal-${i + 7}/420/${i % 3 === 0 ? 520 : 420}`,
+      frame: FRAMES[i % FRAMES.length],
+      x: pos.x,
+      y: pos.y,
+      rotation: (Math.random() * 12 - 6) || 3, // 2–8° organic scatter
+      depth: depthForIndex(i, count),
+      w: 168 + (i % 4) * 14,
+      index: i,
+    });
+  }
+  return items;
 }
+
+export function makeSticky(index) {
+  const pos = phyllotaxis(index);
+  return {
+    id: nextId(),
+    kind: "sticky",
+    color: STICKY_COLORS[index % STICKY_COLORS.length],
+    text: "a small\nthought",
+    x: pos.x,
+    y: pos.y,
+    rotation: Math.random() * 10 - 5,
+    depth: depthForIndex(index, index + 1),
+    w: 132,
+    index,
+  };
+}
+
+export function makeSticker(index) {
+  const pos = phyllotaxis(index);
+  return {
+    id: nextId(),
+    kind: "sticker",
+    glyph: STICKERS[Math.floor(Math.random() * STICKERS.length)],
+    x: pos.x,
+    y: pos.y,
+    rotation: Math.random() * 24 - 12,
+    depth: depthForIndex(index, index + 1),
+    w: 64,
+    index,
+  };
+}
+
+export function makePhoto(index) {
+  const pos = phyllotaxis(index);
+  return {
+    id: nextId(),
+    kind: "photo",
+    src: `https://picsum.photos/seed/liminal-${index + Math.floor(Math.random() * 900)}/420/440`,
+    frame: FRAMES[index % FRAMES.length],
+    x: pos.x,
+    y: pos.y,
+    rotation: Math.random() * 12 - 6,
+    depth: depthForIndex(index, index + 1),
+    w: 176,
+    index,
+  };
+}
+
+/* ---------------- scrapbook decorations ----------------------------- */
+
+const DECOR_TYPES = ["tape", "tapeWide", "star", "cross", "asterisk", "dots", "bracket"];
+
+export function makeDecorations(count = DECOR_COUNT) {
+  const decs = [];
+  for (let i = 0; i < count; i++) {
+    // offset phyllotaxis so ephemera interleaves between photos
+    const pos = phyllotaxis(i * 1.7 + 0.9, SPIRAL_SPACING * 1.18);
+    decs.push({
+      id: `dec-${i}`,
+      type: DECOR_TYPES[i % DECOR_TYPES.length],
+      color: DECOR_COLORS[i % DECOR_COLORS.length],
+      x: pos.x,
+      y: pos.y,
+      rotation: Math.random() * 60 - 30,
+      opacity: 0.18 + Math.random() * 0.28, // 0.18–0.46
+      scale: 0.8 + Math.random() * 0.7,
+    });
+  }
+  return decs;
+}
+
+/* ---------------- misc helpers -------------------------------------- */
+
+export const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+export const lerp = (a, b, t) => a + (b - a) * t;
+export const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);

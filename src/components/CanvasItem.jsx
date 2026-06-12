@@ -1,68 +1,155 @@
-import { CYL } from "../lib/constants.js"
+/* ------------------------------------------------------------------ */
+/*  CanvasItem.jsx — 4-layer photo / sticky / sticker renderer         */
+/*                                                                     */
+/*  Layer 1  position   left/top + burst scale (transition ONLY        */
+/*                      during reveal — pan must be instant)           */
+/*  Layer 2  scatter    rotate(item.rotation), no transition           */
+/*  Layer 3  flat       translate via --ptx/--pty × depth, instant     */
+/*  Layer 4  3D/hover   perspective rotate via --px/--py × depth,      */
+/*                      hover/highlight/drag scale + shadow,           */
+/*                      0.30–0.42s ease-out                            */
+/*                                                                     */
+/*  Collapsing these layers breaks something every time: a transition  */
+/*  on layer 1 makes panning laggy; parallax on a transitioned layer   */
+/*  feels sticky. Keep them separate.                                  */
+/* ------------------------------------------------------------------ */
 
-// ───────────────────────────────────────────────────────────────
-// CanvasItem (geometric cylinder ⇄ spread)
-//
-// rv  = reveal     (0 collapsed at center → 1 placed)
-// m   = morph      (0 cylinder → 1 flat spread)
-//
-// Cylinder placement is real 3D: rotateY(θ) translateZ(R) on a
-// preserve-3d stage, so the parent <stage> can rotateY to TURN the whole
-// cylinder and photos flow around it. The burst lerps θ→0, R→0 and slides
-// each photo to its spread grid position, flattening the cylinder.
-//
-// rv / m are driven per-frame by the Gallery (no CSS transition on the
-// transform, so panning the parent stage stays instant and the tweens
-// stay smooth).
-// ───────────────────────────────────────────────────────────────
+import React, { memo, useState } from "react";
 
-const lr = (a, b, t) => a + (b - a) * t
+/* ---------------- tuning ------------------------------------------ */
+export const BURST_EASE = "cubic-bezier(0.34, 1.56, 0.64, 1)"; // spring overshoot
+export const BURST_DUR = 0.84;   // seconds per item
+export const STAGGER_MAX = 300;  // ms — index-proportional, spiral draws itself
 
-export default function CanvasItem({ item, m, rv, spreadW = 1100, spreadH = 600, delay = 0 }) {
-  const flat = m > 0.5
+const SHADOWS = {
+  rest: "drop-shadow(0 4px 18px rgba(0,0,0,0.10))",
+  hover: "drop-shadow(0 16px 32px rgba(0,0,0,0.22))",
+  highlight: "drop-shadow(0 20px 40px rgba(0,0,0,0.26))",
+  drag: "drop-shadow(0 26px 48px rgba(0,0,0,0.30))",
+};
 
-  // target (cylinder→spread by m), then collapse toward center by rv
-  const ry = lr(item.theta, 0, m)
-  const tz = lr(CYL.radius, 0, m) * rv
-  const tx = lr(0, item.sx * spreadW, m) * rv
-  const ty = lr(item.hy, item.sy * spreadH, m) * rv
-  const rz = lr(item.tilt, item.frot, m)
-  const s = lr(0.16, 1, rv) * lr(1, CYL.spreadScale, m)
+function PhotoBody({ item }) {
+  if (item.frame === "polaroid") {
+    return (
+      <div style={{ background: "#fff", padding: "10px 10px 38px" }}>
+        <img src={item.src} alt="" style={{ width: item.w, height: "auto" }} />
+      </div>
+    );
+  }
+  if (item.frame === "gingham") {
+    return (
+      <div
+        style={{
+          padding: 9,
+          background:
+            "repeating-conic-gradient(#9db8d9 0% 25%, #ffffff 0% 50%) 0 0 / 14px 14px",
+        }}
+      >
+        <img src={item.src} alt="" style={{ width: item.w, height: "auto" }} />
+      </div>
+    );
+  }
+  return <img src={item.src} alt="" style={{ width: item.w, height: "auto" }} />;
+}
 
-  const transform =
-    `translate(-50%, -50%) rotateY(${ry}deg) translateZ(${tz}px) ` +
-    `translateX(${tx}px) translateY(${ty}px) rotateZ(${rz}deg) scale(${s})`
-
+function StickyBody({ item }) {
   return (
     <div
       style={{
-        position: "absolute",
-        left: 0,
-        top: 0,
-        transformStyle: "preserve-3d",
-        backfaceVisibility: flat ? "visible" : "hidden",
-        transform,
-        opacity: rv,
-        transition: `opacity 0.4s ease ${delay}ms`,
+        width: item.w,
+        minHeight: item.w * 0.92,
+        background: item.color,
+        padding: "16px 14px",
+        fontSize: 17,
+        fontStyle: "italic",
+        lineHeight: 1.4,
+        whiteSpace: "pre-line",
+        color: "rgba(26,26,26,0.78)",
+        boxShadow: "inset 0 -22px 28px rgba(0,0,0,0.04)",
       }}
     >
-      {item.type === "photo" && <PhotoCard item={item} />}
-      {item.type === "sticky" && <StickyCard item={item} />}
-      {item.type === "sticker" && <StickerCard item={item} />}
+      {item.text}
     </div>
-  )
+  );
 }
 
-function PhotoCard({ item }) {
-  const { src, width: w = 160, height: h = 120, frame } = item
-  const img = <img src={src} alt="" style={{ display: "block", width: w, height: h, objectFit: "cover" }} />
-  if (frame === "polaroid") return <div style={{ background: "#FEFEFE", padding: "7px 7px 28px", boxShadow: "0 6px 22px rgba(0,0,0,0.12)" }}>{img}</div>
-  if (frame === "gingham") return <div style={{ padding: 9, backgroundImage: "repeating-conic-gradient(#B2C8DA 0% 25%, #D4E8F2 0% 50%)", backgroundSize: "13px 13px", boxShadow: "0 6px 22px rgba(0,0,0,0.1)" }}><div style={{ padding: 5, background: "#FFF" }}>{img}</div></div>
-  return <div style={{ boxShadow: "0 3px 16px rgba(0,0,0,0.12), 0 1px 4px rgba(0,0,0,0.06)" }}>{img}</div>
+function StickerBody({ item }) {
+  return (
+    <div style={{ fontSize: item.w, lineHeight: 1, color: "rgba(26,26,26,0.72)" }}>
+      {item.glyph}
+    </div>
+  );
 }
-function StickyCard({ item }) {
-  return <div style={{ width: 130, minHeight: 118, background: item.color || "#FFF", padding: "13px 13px 9px", boxShadow: "0 4px 18px rgba(0,0,0,0.08)", fontFamily: "system-ui, sans-serif", fontSize: 13, color: "#444", lineHeight: 1.5 }}>{item.text || "…"}</div>
+
+function CanvasItem({ item, revealed, highlighted, dragged, mode3d, onPointerDown }) {
+  const [hover, setHover] = useState(false);
+
+  const scale = dragged ? 1.08 : highlighted ? 1.12 : hover ? 1.04 : 1;
+  const filter = dragged
+    ? SHADOWS.drag
+    : highlighted
+      ? SHADOWS.highlight
+      : hover
+        ? SHADOWS.hover
+        : SHADOWS.rest;
+
+  const stagger = Math.min(item.index * 24, STAGGER_MAX);
+
+  return (
+    /* ---- layer 1 · position + burst -------------------------------- */
+    <div
+      onMouseDown={(e) => onPointerDown?.(e, item)}
+      style={{
+        position: "absolute",
+        left: revealed ? item.x : 0,
+        top: revealed ? item.y : 0,
+        transform: `translate(-50%, -50%) scale(${revealed ? 1 : 0})`,
+        opacity: revealed ? 1 : 0,
+        transition: revealed
+          ? `left ${BURST_DUR}s ${BURST_EASE} ${stagger}ms,
+             top ${BURST_DUR}s ${BURST_EASE} ${stagger}ms,
+             transform ${BURST_DUR}s ${BURST_EASE} ${stagger}ms,
+             opacity ${BURST_DUR * 0.7}s ease ${stagger}ms`
+          : "none",
+        cursor: dragged ? "grabbing" : "grab",
+        willChange: "transform",
+        zIndex: dragged ? 30 : highlighted ? 20 : 1,
+      }}
+    >
+      {/* ---- layer 2 · organic scatter, instant ---------------------- */}
+      <div style={{ transform: `rotate(${item.rotation}deg)` }}>
+        {/* ---- layer 3 · flat parallax, instant ----------------------- */}
+        <div
+          style={{
+            transform: `translate(
+              calc(var(--ptx, 0px) * ${item.depth}),
+              calc(var(--pty, 0px) * ${item.depth})
+            )`,
+          }}
+        >
+          {/* ---- layer 4 · 3D mode + hover, eased ---------------------- */}
+          <div
+            onMouseEnter={() => setHover(true)}
+            onMouseLeave={() => setHover(false)}
+            style={{
+              transform: mode3d
+                ? `perspective(600px)
+                   rotateY(calc((var(--px, 0deg) + ${item.cylY || 0}deg) * ${item.depth}))
+                   rotateX(calc(var(--py, 0deg) * ${item.depth}))
+                   scale(${scale})`
+                : `scale(${scale})`,
+              filter,
+              transition: "transform 0.42s ease-out, filter 0.30s ease-out",
+            }}
+          >
+            {item.kind === "photo" && <PhotoBody item={item} />}
+            {item.kind === "sticky" && <StickyBody item={item} />}
+            {item.kind === "sticker" && <StickerBody item={item} />}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
-function StickerCard({ item }) {
-  return <div style={{ fontSize: 60, lineHeight: 1, userSelect: "none" }}>{item.emoji}</div>
-}
+
+export default memo(CanvasItem);

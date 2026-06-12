@@ -1,112 +1,93 @@
 # liminal
 
-A memory world you control with your hands. Open the app, raise your hand to the camera, and **close your fist to open your world** — your memories burst out from the center across an infinite canvas you then pan, zoom, point at, and rotate with hand gestures (powered by MediaPipe Hands).
+A browser-based memory world you control with your hands.
 
-## Quick start
+Photos float in a phyllotaxis spiral on an infinite canvas, rotating gently in
+space. MediaPipe hand tracking turns your webcam into the controller — pan with
+an open palm, zoom with a pinch, point to choose, spin with two fingers, fist
+to recenter. Mouse and keyboard always work as a fallback.
+
+## Run it
 
 ```bash
 npm install
 npm run dev
 ```
 
-Open http://localhost:5173 (use the **Local** URL, not the LAN IP — the camera only works on a secure context). Allow camera access, make a fist, and the world opens.
+Open the printed `localhost` URL in **Chrome or Edge** and allow camera access.
+Camera requires a secure context — `localhost` in dev, `https://` in
+production. It will not work over a LAN IP.
 
-## The flow
+## Entry
 
-1. **Startup screen** — a centered camera window watches your hand. A white ring appears when a hand is detected.
-2. **Close your fist** (hold briefly) — triggers the reveal. There's also an "or click to enter" fallback, and if the camera can't start it switches to a plain Enter button.
-3. **The burst** — all memories start collapsed at the center and snap outward to their scattered positions with a staggered, snappy ease.
-4. **Explore** — pan, zoom, point, toggle 3D, and add memories.
+Hold a **fist** at the startup screen until the system arms, then **open your
+palm** — the spiral bursts into existence. Click "Enter without gestures" to
+skip.
 
-## Controls
+## Gestures
 
-| Action | Mouse / keyboard | Hand gesture |
-| --- | --- | --- |
-| Open the world | click "enter" | close fist ✊ |
-| Pan | drag canvas · arrow keys | open palm ✋, move hand |
-| Zoom | scroll wheel · `+` / `-` | pinch pose 🤏 (curl middle/ring/pinky), spread = in, close = out |
-| Highlight | hover | point ☝️ (index up, others curled) at a photo |
-| 3D / Flat | top-left toggle | — |
-| Add memory | bottom-left **CREATE** | — |
+| Gesture | Action |
+|---|---|
+| Open palm, move | Pan the canvas |
+| Pinch, spread / close | Zoom |
+| Pinch + move | Zoom and pan together |
+| Point (index up) | Highlight nearest memory |
+| Point + hold 2s | Open fullscreen preview |
+| Point, then pinch | Grab and drag that memory |
+| Two fingers, move left/right | Spin the spiral (vinyl-flick feel) |
+| Fist | Recenter and replay the burst |
 
-## Swapping in your own images
+Mouse: drag to pan (with inertia), scroll to zoom, drag items directly.
+Keyboard: arrows pan, `+` / `−` zoom, `Esc` closes the preview.
 
-Right now the canvas loads placeholder photos from `picsum.photos`. To use your own set, edit `makeDemo()` in `src/lib/constants.js`. Drop your files in `public/photos/` and point the `src` values at them:
+## Architecture notes
 
-```js
-const MY_PHOTOS = [
-  { file: "beach.jpg",  w: 220, h: 165 },
-  { file: "dinner.jpg", w: 180, h: 240 },
-  // …
-]
+- **MediaPipe loads via CDN `<script>` tags** (`window.Hands`, `window.Camera`)
+  in `index.html`. The npm package fails silently under Vite — do not convert
+  to imports.
+- All continuous motion (pan, zoom, spiral rotation, parallax, inertia) runs in
+  a single RAF loop in `Gallery.jsx` writing directly to the DOM. React owns
+  discrete state only.
+- Each item renders through a strict 4-layer transform stack
+  (`CanvasItem.jsx`) — position/burst, scatter rotation, flat parallax,
+  3D/hover. See the file header for why collapsing layers breaks things.
+- Two separate EMA layers: gesture motion (`useHandGestures.js`, α 0.4) and
+  skeleton drawing (`handDraw.js`, α 0.5).
 
-export function makeDemo() {
-  return MY_PHOTOS.map(({ file, w, h }) => ({
-    id: uid(),
-    type: "photo",
-    src: `/photos/${file}`,
-    x: rand(-680, 680),
-    y: rand(-380, 380),
-    rotation: rand(-16, 16),
-    width: w,
-    height: h,
-    frame: "bare",
-  }))
-}
-```
+## Tuning reference
 
-Files in `public/` are served from the site root, so `public/photos/beach.jpg` → `/photos/beach.jpg`.
+All knobs sit at the top of their files.
 
-## How it works
+| Parameter | File | Constant | Default |
+|---|---|---|---|
+| Gesture smoothness | `hooks/useHandGestures.js` | `SMOOTH` | 0.4 |
+| Skeleton smoothness | `lib/handDraw.js` | `DRAW_SMOOTH` | 0.5 |
+| Pinch sensitivity | `lib/gestures.js` | `PINCH_THRESHOLD` | 0.12 |
+| Zoom speed | `components/Gallery.jsx` | `ZOOM_GAIN` | 9 |
+| Pan speed | `components/Gallery.jsx` | `PAN_GAIN` | 1.35 |
+| Auto-rotation | `components/Gallery.jsx` | `BASE` | 0.022 °/frame |
+| Spin inertia decay | `components/Gallery.jsx` | `SPIRAL_DECAY` | 0.96 |
+| Pan inertia decay | `components/Gallery.jsx` | `PAN_DECAY` | 0.91 |
+| Spiral spacing | `lib/constants.js` | `SPIRAL_SPACING` | 150 |
+| Burst ease / duration | `components/CanvasItem.jsx` | `BURST_EASE` / `BURST_DUR` | spring / 0.84s |
+| Fist / open thresholds | `hooks/useFistTrigger.js` | `FIST_FRAMES` / `OPEN_FRAMES` | 4 / 3 |
+| Music volume | `hooks/useAmbientMusic.js` | `MASTER_LEVEL` | 0.22 |
 
-- **Gesture detection** — `@mediapipe/hands` returns 21 landmarks per hand each frame. `src/lib/gestures.js` classifies them by which fingers are extended: fist → open-world / recenter, open palm → pan, index-only → point, middle/ring/pinky curled → zoom (thumb–index distance sets the amount).
-- **Two gesture hooks** — `useFistTrigger.js` runs on the startup screen watching only for a debounced fist; `useHandGestures.js` runs in the gallery for pan/zoom/point. Both load MediaPipe from the CDN (the npm builds aren't clean ES modules) and emit raw landmarks via `onLandmarks`.
-- **Hand skeleton overlay** — `SkeletonVideo.jsx` lays a `<canvas>` over the mirrored video and paints the 21 landmarks + connections each frame using MediaPipe's `drawing_utils` (wrapped in `src/lib/handDraw.js`). Shown on both the startup camera and the in-gallery preview.
-- **The fly-out** — `CanvasItem` renders collapsed at the center (`left/top: 0`, scaled down, transparent) until `revealed` flips true, then transitions to each item's target `x/y` with a per-item stagger delay for the burst feel.
-- **3D cylinder** — each item gets a `rotateY` proportional to its on-screen X position, so panning rotates photos into and out of view like the inside of a cylinder.
+## Known limitations
 
-## Project structure
+- Ad-blockers may block the jsDelivr CDN, silently disabling hand tracking.
+  The app stays usable via mouse/keyboard.
+- Point hit-test accuracy drifts slightly as the spiral rotates away from base
+  positions (mitigated with a rotation-aware screen→world transform, but the
+  nearest-item search is still approximate at high spin).
+- ~20 items max before frame drops on average hardware. Demo ships with 15.
+- Chrome/Edge only. MediaPipe is unreliable on Safari.
 
-```
-src/
-├── App.jsx                  startup → gallery, holds the memory set
-├── styles.css               reset + font import + background
-├── components/
-│   ├── StartupScreen.jsx     centered camera + fist trigger
-│   ├── Gallery.jsx           canvas, pan/zoom/point, reveal, controls
-│   ├── CanvasItem.jsx        photo / sticky / sticker + fly-out + highlight
-│   ├── SkeletonVideo.jsx     mirrored video + hand-skeleton canvas overlay
-│   ├── Sidebar.jsx           add-a-memory panel
-│   └── HintBadge.jsx         fading instruction badge
-├── hooks/
-│   ├── useFistTrigger.js     startup fist detection
-│   └── useHandGestures.js    gallery pan/zoom/point
-└── lib/
-    ├── constants.js          colors, stickers, frames, helpers, demo data
-    ├── gestures.js           21-landmark → gesture classifier
-    └── handDraw.js           skeleton drawing via MediaPipe drawing_utils
-```
-
-## Requirements & caveats
-
-- **Browser**: Chrome or Edge. MediaPipe's hand model is unreliable on Safari.
-- **Secure origin**: webcam access requires `localhost` (dev) or HTTPS (production). Use the Local URL.
-- **No persistence**: refreshing resets the board (intentional MVP scope).
-- **Internet on first load**: placeholder photos + MediaPipe assets load from CDNs.
-- **No camera? No problem**: the startup screen offers a click-to-enter fallback, and the gallery works fully with mouse + keyboard.
-
-## Build & deploy
+## Deploy
 
 ```bash
-npm run build
-npm run preview
+npm run build && npm run preview
 ```
 
-Deploy `dist/` to any static host. On Vercel: import the repo, framework preset **Vite** — you get HTTPS automatically, so the camera works.
-
-## Next steps worth considering
-
-- Point-and-pinch to **grab and drag** items (the "drag stickies anywhere" behavior).
-- Fist-in-gallery to **recenter** the canvas (the `fist` gesture is already detected).
-- Editable sticky note text; persist boards (IndexedDB or a backend).
-- Gesture smoothing to steady a jittery camera feed.
+Deploy `dist/` to any static host. Vercel (framework preset: Vite) gives you
+the required HTTPS automatically.

@@ -1,103 +1,63 @@
-// ───────────────────────────────────────────────────────────────
-// Hand skeleton drawing
-//
-// Wraps MediaPipe's drawing_utils to paint the 21 landmarks and their
-// connections onto a <canvas> overlaid on the video. Loads the CDN
-// script once and reuses window.drawConnectors / window.drawLandmarks
-// (plus window.HAND_CONNECTIONS from the hands script).
-// ───────────────────────────────────────────────────────────────
+/* ------------------------------------------------------------------ */
+/*  handDraw.js — skeleton rendering + overlay smoothing               */
+/*                                                                     */
+/*  The drawn skeleton uses its OWN EMA (separate from the motion      */
+/*  layer in useHandGestures). Visuals can be smoother than gesture    */
+/*  response without making interactions feel laggy.                   */
+/* ------------------------------------------------------------------ */
 
-const DRAWING_URL =
-  "https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"
+import { COLORS } from "./constants.js";
 
-let drawingReady = false
-let drawingPromise = null
+/* ---------------- tuning ------------------------------------------ */
+export const DRAW_SMOOTH = 0.5; // EMA α for skeleton — ↓ smoother, laggier
 
-export function loadDrawingUtils() {
-  if (drawingReady) return Promise.resolve()
-  if (drawingPromise) return drawingPromise
+const CONNECTIONS = [
+  [0, 1], [1, 2], [2, 3], [3, 4],          // thumb
+  [0, 5], [5, 6], [6, 7], [7, 8],          // index
+  [5, 9], [9, 10], [10, 11], [11, 12],     // middle
+  [9, 13], [13, 14], [14, 15], [15, 16],   // ring
+  [13, 17], [17, 18], [18, 19], [19, 20],  // pinky
+  [0, 17],                                  // palm edge
+];
 
-  drawingPromise = new Promise((resolve) => {
-    const existing = document.querySelector(`script[src="${DRAWING_URL}"]`)
-    if (existing) {
-      if (existing.dataset.loaded === "true") {
-        drawingReady = true
-        return resolve()
+export function createSkeletonRenderer() {
+  let smoothed = null; // persistent EMA state across frames
+
+  return function draw(ctx, landmarks, width, height) {
+    ctx.clearRect(0, 0, width, height);
+    if (!landmarks) {
+      smoothed = null;
+      return;
+    }
+
+    if (!smoothed) {
+      smoothed = landmarks.map((p) => ({ x: p.x, y: p.y }));
+    } else {
+      for (let i = 0; i < landmarks.length; i++) {
+        smoothed[i].x += (landmarks[i].x - smoothed[i].x) * DRAW_SMOOTH;
+        smoothed[i].y += (landmarks[i].y - smoothed[i].y) * DRAW_SMOOTH;
       }
-      existing.addEventListener("load", () => {
-        drawingReady = true
-        resolve()
-      })
-      existing.addEventListener("error", () => resolve()) // fail soft
-      return
     }
-    const s = document.createElement("script")
-    s.src = DRAWING_URL
-    s.crossOrigin = "anonymous"
-    s.onload = () => {
-      s.dataset.loaded = "true"
-      drawingReady = true
-      resolve()
+
+    // bones
+    ctx.strokeStyle = COLORS.bones;
+    ctx.lineWidth = 2;
+    ctx.lineCap = "round";
+    ctx.globalAlpha = 0.9;
+    for (const [a, b] of CONNECTIONS) {
+      ctx.beginPath();
+      ctx.moveTo(smoothed[a].x * width, smoothed[a].y * height);
+      ctx.lineTo(smoothed[b].x * width, smoothed[b].y * height);
+      ctx.stroke();
     }
-    s.onerror = () => resolve() // fail soft — overlay just won't draw
-    document.head.appendChild(s)
-  })
-  return drawingPromise
-}
 
-// Palette: thin white bones, purple-filled joints.
-const CONNECTION_STYLE = { color: "#FFFFFF", lineWidth: 1.5 }
-const LANDMARK_STYLE = { color: "#FFFFFF", fillColor: "#a04bca", lineWidth: 1, radius: 2 }
-
-// Per-landmark smoothing so the drawn skeleton glides instead of buzzing.
-let smoothedLm = null
-const DRAW_SMOOTH = 0.5
-function smoothLandmarks(landmarks) {
-  if (!smoothedLm || smoothedLm.length !== landmarks.length) {
-    smoothedLm = landmarks.map((p) => ({ x: p.x, y: p.y, z: p.z }))
-    return smoothedLm
-  }
-  for (let i = 0; i < landmarks.length; i++) {
-    const s = smoothedLm[i]
-    const n = landmarks[i]
-    s.x += DRAW_SMOOTH * (n.x - s.x)
-    s.y += DRAW_SMOOTH * (n.y - s.y)
-    s.z += DRAW_SMOOTH * (n.z - s.z)
-  }
-  return smoothedLm
-}
-
-// Draws one hand's landmarks onto ctx. The video is mirrored via CSS
-// (scaleX(-1)), so we mirror the canvas context to match.
-export function drawHand(ctx, canvas, landmarks) {
-  if (!ctx || !canvas) return
-
-  ctx.save()
-  ctx.clearRect(0, 0, canvas.width, canvas.height)
-
-  if (!landmarks || !drawingReady) {
-    smoothedLm = null
-    ctx.restore()
-    return
-  }
-
-  const lm = smoothLandmarks(landmarks)
-
-  // Mirror horizontally to align with the flipped video preview
-  ctx.translate(canvas.width, 0)
-  ctx.scale(-1, 1)
-
-  const connections = window.HAND_CONNECTIONS
-  if (window.drawConnectors && connections) {
-    window.drawConnectors(ctx, lm, connections, CONNECTION_STYLE)
-  }
-  if (window.drawLandmarks) {
-    window.drawLandmarks(ctx, lm, LANDMARK_STYLE)
-  }
-
-  ctx.restore()
-}
-
-export function clearHand(ctx, canvas) {
-  if (ctx && canvas) ctx.clearRect(0, 0, canvas.width, canvas.height)
+    // joints
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = COLORS.joints;
+    for (const p of smoothed) {
+      ctx.beginPath();
+      ctx.arc(p.x * width, p.y * height, 3.4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  };
 }

@@ -1,75 +1,78 @@
-// ───────────────────────────────────────────────────────────────
-// Gesture recognition
-//
-// MediaPipe Hands returns 21 normalized landmarks per hand:
-//   0 wrist · 4 thumb tip · 8 index tip · 12 middle tip · 16 ring tip · 20 pinky tip
-//   5/9/13/17 = the matching knuckles (MCP)
-// Coordinates are 0..1, y growing DOWNWARD.
-//
-// Gallery gesture map:
-//   • fist (all curled)              → FIST   re-form the cylinder
-//   • two fingers (index+middle up)  → TWO    turn the cylinder
-//   • open palm (all four up)        → OPEN   burst into the flat spread
-//   • pinch (thumb+index close)      → ZOOM   dolly in / out
-//   • index only                     → POINT  (parked)
-// ───────────────────────────────────────────────────────────────
+/* ------------------------------------------------------------------ */
+/*  gestures.js — 21-landmark → gesture classifier                     */
+/*                                                                     */
+/*  Landmark map (MediaPipe Hands):                                    */
+/*    0 wrist · 4 thumb tip · 8 index tip · 12 middle tip              */
+/*    16 ring tip · 20 pinky tip · pip joints at tip-2                 */
+/* ------------------------------------------------------------------ */
 
-const EXTEND_MARGIN = 0.03
+/* ---------------- tuning ------------------------------------------ */
+export const PINCH_THRESHOLD = 0.12; // ↓ = tighter pinch required to engage zoom
 
-function fingerStates(lm) {
-  return {
-    iUp: lm[8].y < lm[5].y - EXTEND_MARGIN,
-    mUp: lm[12].y < lm[9].y - EXTEND_MARGIN,
-    rUp: lm[16].y < lm[13].y - EXTEND_MARGIN,
-    pUp: lm[20].y < lm[17].y - EXTEND_MARGIN,
-  }
+const d = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+
+// A finger is "extended" when its tip sits further from the wrist than
+// its pip joint by a margin. Rotation-tolerant — no y-axis assumption.
+function extended(landmarks, tip, pip, margin = 1.12) {
+  const wrist = landmarks[0];
+  return d(landmarks[tip], wrist) > d(landmarks[pip], wrist) * margin;
 }
 
-// Standalone fist check — used by the startup screen.
-export function isFist(lm) {
-  if (!lm?.length) return false
-  const { iUp, mUp, rUp, pUp } = fingerStates(lm)
-  return !iUp && !mUp && !rUp && !pUp
+function thumbExtended(landmarks) {
+  // thumb measured against index mcp — splayed thumbs read as extended
+  return d(landmarks[4], landmarks[17]) > d(landmarks[3], landmarks[17]) * 1.05;
 }
 
-// Clearly-open hand — used by the startup screen's fist→open trigger.
-export function isOpenHand(lm) {
-  if (!lm?.length) return false
-  const { iUp, mUp, rUp, pUp } = fingerStates(lm)
-  return iUp && mUp && rUp && pUp
-}
+/**
+ * Classify a single frame of landmarks.
+ *
+ * Priority order is deliberate (PRD §6.2):
+ *   1. pinch  — thumb+index gap < 0.12 is ALWAYS zoom, regardless of
+ *               other finger states. Prevents false positives.
+ *   2. two    — index + middle up, ring + pinky curled
+ *   3. point  — index up, others curled
+ *   4. open   — all four fingers extended
+ *   5. fist   — all four fingers curled
+ *
+ * Returns { type, pinchGap, pinchMid, palm, indexTip }
+ */
+export function detectGesture(landmarks) {
+  if (!landmarks || landmarks.length < 21) return { type: "none" };
 
-export function detectGesture(lm) {
-  if (!lm?.length) return null
+  const pinchGap = d(landmarks[4], landmarks[8]);
+  const pinchMid = {
+    x: (landmarks[4].x + landmarks[8].x) / 2,
+    y: (landmarks[4].y + landmarks[8].y) / 2,
+  };
+  // palm centre — wrist + middle mcp midpoint, stabler than wrist alone
+  const palm = {
+    x: (landmarks[0].x + landmarks[9].x) / 2,
+    y: (landmarks[0].y + landmarks[9].y) / 2,
+  };
+  const indexTip = { x: landmarks[8].x, y: landmarks[8].y };
 
-  const thumbTip = lm[4]
-  const indexTip = lm[8]
+  const base = { pinchGap, pinchMid, palm, indexTip };
 
-  // Palm centroid — drives turning/scroll
-  const cx = lm.reduce((s, p) => s + p.x, 0) / lm.length
-  const cy = lm.reduce((s, p) => s + p.y, 0) / lm.length
+  // 1 — pinch wins over everything
+  if (pinchGap < PINCH_THRESHOLD) return { type: "pinch", ...base };
 
-  const pinch = Math.hypot(thumbTip.x - indexTip.x, thumbTip.y - indexTip.y)
-  const { iUp, mUp, rUp, pUp } = fingerStates(lm)
+  const idx = extended(landmarks, 8, 6);
+  const mid = extended(landmarks, 12, 10);
+  const ring = extended(landmarks, 16, 14);
+  const pinky = extended(landmarks, 20, 18);
+  const up = [idx, mid, ring, pinky].filter(Boolean).length;
 
-  // Fist → re-form cylinder
-  if (!iUp && !mUp && !rUp && !pUp) return { type: "fist", cx, cy }
+  // 2 — two-finger (before open palm)
+  if (idx && mid && !ring && !pinky) return { type: "two", ...base };
 
-  // Pinch → zoom (checked before the finger poses; pose-agnostic)
-  if (pinch < 0.12) {
-    return { type: "zoom", pinch, cx, cy }
-  }
+  // 3 — point
+  if (idx && !mid && !ring && !pinky) return { type: "point", ...base };
 
-  // Open palm (all four) → burst to flat spread
-  if (iUp && mUp && rUp && pUp) return { type: "open", cx, cy }
+  // 4 — open palm (allow one missed finger for tracking noise)
+  if (up >= 3 && thumbExtended(landmarks)) return { type: "open", ...base };
 
-  // Two fingers (index + middle up, ring + pinky curled) → turn cylinder
-  if (iUp && mUp && !rUp && !pUp) return { type: "two", cx, cy }
+  // 5 — fist
+  if (up === 0) return { type: "fist", ...base };
 
-  // Index only → point (parked)
-  if (iUp && !mUp && !rUp && !pUp) {
-    return { type: "point", x: 1 - indexTip.x, y: indexTip.y }
-  }
-
-  return { type: "idle" }
+  return { type: "none", ...base };
 }

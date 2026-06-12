@@ -2,9 +2,21 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <meta name="description" content="A memory world you control with your hands." />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>liminal</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;1,300;1,400&display=swap"
+      rel="stylesheet"
+    />
+    <!--
+      MediaPipe MUST load via CDN script tags as globals (window.Hands, window.Camera).
+      The npm package does not ship clean ES modules and fails silently under Vite.
+      This is a hard architectural constraint — do not move to imports.
+    -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
   </head>
   <body>
     <div id="root"></div>

@@ -1,34 +1,83 @@
-@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;1,300;1,400&display=swap');
+/* ------------------------------------------------------------------ */
+/*  liminal — global styles                                            */
+/* ------------------------------------------------------------------ */
 
-*,
-*::before,
-*::after {
-  box-sizing: border-box;
+* {
   margin: 0;
   padding: 0;
+  box-sizing: border-box;
 }
 
 html,
-body {
+body,
+#root {
+  width: 100%;
   height: 100%;
   overflow: hidden;
-  background: #fff3d1;
 }
 
-#root {
-  height: 100%;
-}
-
-::selection {
-  background: rgba(26, 26, 26, 0.13);
+body {
+  background: #fff3d1; /* warm golden cream — all screens */
+  color: #1a1a1a;
+  font-family: "Cormorant Garamond", Georgia, serif;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
 }
 
 button {
   font-family: inherit;
+  cursor: pointer;
+  border: none;
+  background: none;
 }
 
 img {
-  -webkit-user-drag: none;
-  user-select: none;
+  display: block;
   pointer-events: none;
+  -webkit-user-drag: none;
+}
+
+/* ---- film grain (animated feTurbulence layer) -------------------- */
+
+@keyframes grain {
+  0%   { transform: translate(0, 0); }
+  10%  { transform: translate(-5%, -8%); }
+  20%  { transform: translate(-12%, 4%); }
+  30%  { transform: translate(6%, -10%); }
+  40%  { transform: translate(-4%, 12%); }
+  50%  { transform: translate(-10%, 6%); }
+  60%  { transform: translate(12%, 0%); }
+  70%  { transform: translate(0%, 14%); }
+  80%  { transform: translate(3%, 10%); }
+  90%  { transform: translate(-8%, 10%); }
+  100% { transform: translate(0, 0); }
+}
+
+/* ---- lightbox ----------------------------------------------------- */
+
+@keyframes lightbox-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes lightbox-spring {
+  0%   { transform: scale(0.82); opacity: 0; }
+  60%  { transform: scale(1.03); opacity: 1; }
+  100% { transform: scale(1);    opacity: 1; }
+}
+
+/* ---- hint badge ---------------------------------------------------- */
+
+@keyframes hint-fade {
+  0%   { opacity: 0; transform: translateY(8px); }
+  8%   { opacity: 1; transform: translateY(0); }
+  82%  { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }
